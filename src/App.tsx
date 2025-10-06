@@ -1,168 +1,193 @@
-import { useState } from "react";
+import React, { useState, useMemo } from 'react';
 
-/** --- 型定義（日本語キー） --- */
-type ServiceItem = {
-  ["サービス名"]?: string;
-  ["サービスのコスト"]?: { ["毎月"]?: string };
-};
-type CalcJSON = {
-  ["名前"]?: string;
-  ["合計コスト"]?: { ["毎月"]?: string };
-  ["メタデータ"]?: { ["通貨"]?: string };
-  ["グループ"]?: { ["サービス"]?: ServiceItem[] };
-};
+// --- 仮のコンポーネント定義 (実際のプロジェクトに合わせて調整) ---
 
-type Row = { name: string; usd: number; jpy: number };
-
-const toNumber = (v: unknown) =>
-  Number(String(v ?? "").replace(/[^\d.-]/g, "")) || 0;
-
-/** 為替取得（USD→JPY）。CORS等で失敗時はフォールバック */
-async function getUsdJpyRate(): Promise<number> {
-  try {
-    const r1 = await fetch(
-      "https://api.frankfurter.app/latest?from=USD&to=JPY"
-    );
-    if (r1.ok) {
-      const d = await r1.json();
-      const fx = Number(d?.rates?.JPY);
-      if (fx) return fx;
-    }
-  } catch {}
-  try {
-    const r2 = await fetch("https://open.er-api.com/v6/latest/USD");
-    if (r2.ok) {
-      const d = await r2.json();
-      const fx = Number(d?.rates?.JPY);
-      if (fx) return fx;
-    }
-  } catch {}
-  // 最後の手段：固定レート（通知用にconsoleにも出す）
-  console.warn("FX API fallback: using default 150");
-  return 150;
-}
-
-export default function App() {
-  const [name, setName] = useState("");
-  const [rate, setRate] = useState<number | null>(null);
-  const [totalUsd, setTotalUsd] = useState<number | null>(null);
-  const [totalJpy, setTotalJpy] = useState<number | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [raw, setRaw] = useState<CalcJSON | null>(null);
-
-  const handleFile = async (file: File) => {
-    const text = await file.text();
-    const json = JSON.parse(text) as CalcJSON;
-    setRaw(json);
-    setName(json["名前"] ?? "（名称未設定）");
-
-    // 1) サービス行を抽出
-    const services = json["グループ"]?.["サービス"] ?? [];
-    const serviceUsdRows: Row[] = services.map((s) => {
-      const name = (s["サービス名"] ?? "（不明）").trim();
-      const usd = toNumber(s["サービスのコスト"]?.["毎月"]);
-      return { name, usd, jpy: 0 };
-    });
-
-    // 2) 合計の月額USD（合計が無ければサービス合算）
-    let monthlyUsd = toNumber(json["合計コスト"]?.["毎月"]);
-    if (!monthlyUsd) {
-      monthlyUsd = serviceUsdRows.reduce((sum, r) => sum + r.usd, 0);
-    }
-
-    // 3) 為替レート取得＆換算
-    const fx = await getUsdJpyRate();
-    const withJpy = serviceUsdRows.map((r) => ({ ...r, jpy: r.usd * fx }));
-
-    setRate(fx);
-    setRows(withJpy);
-    setTotalUsd(monthlyUsd);
-    setTotalJpy(monthlyUsd * fx);
-  };
-
-  const fmtUsd = (n?: number | null) =>
-    n == null ? "-" : `${n.toFixed(2)} USD`;
-  const fmtJpy = (n?: number | null) =>
-    n == null ? "-" : `${Math.round(n).toLocaleString("ja-JP")} 円`;
-
-  return (
-    <div style={{ maxWidth: 920, margin: "40px auto", padding: 16 }}>
-      <h1>Pricing Calculator JSON 換算ビューア</h1>
-
-      <input
-        type="file"
-        accept="application/json"
-        onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-      />
-      <p style={{ fontSize: 12, color: "#666" }}>
-        Pricing Calculator からエクスポートした JSON を選択してください。
-      </p>
-
-      {totalUsd !== null && (
-        <>
-          <h3>見積名：{name}</h3>
-
-          {/* 合計カード */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ padding: 12, border: "1px solid #ddd", borderRadius: 8 }}>
-              <div>月額（USD）</div>
-              <div style={{ fontSize: 28 }}>{fmtUsd(totalUsd)}</div>
-            </div>
-            <div style={{ padding: 12, border: "1px solid #ddd", borderRadius: 8 }}>
-              <div>月額（JPY）</div>
-              <div style={{ fontSize: 28 }}>{fmtJpy(totalJpy)}</div>
-              <div style={{ fontSize: 12, color: "#666" }}>
-                レート：1 USD = {rate?.toFixed(4)} JPY
-              </div>
-            </div>
-          </div>
-
-          {/* サービス別明細テーブル */}
-          <h3 style={{ marginTop: 24 }}>サービス別 明細</h3>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>
-                    サービス名
-                  </th>
-                  <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>
-                    月額（USD）
-                  </th>
-                  <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>
-                    月額（JPY）
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>{r.name}</td>
-                    <td style={{ padding: 8, textAlign: "right", borderBottom: "1px solid #f0f0f0" }}>
-                      {fmtUsd(r.usd)}
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right", borderBottom: "1px solid #f0f0f0" }}>
-                      {fmtJpy(r.jpy)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th style={{ padding: 8, textAlign: "right" }}>合計</th>
-                  <th style={{ padding: 8, textAlign: "right" }}>{fmtUsd(totalUsd)}</th>
-                  <th style={{ padding: 8, textAlign: "right" }}>{fmtJpy(totalJpy)}</th>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <details style={{ marginTop: 16 }}>
-            <summary>原本JSONを見る</summary>
-            <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(raw, null, 2)}</pre>
-          </details>
-        </>
-      )}
+// Field: ラベルとヒントを持つ入力コンテナ
+const Field: React.FC<{ label: string; hint: string; children: React.ReactNode }> = ({ label, hint, children }) => (
+    <div className="mb-6">
+        <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
+        {children}
+        <p className="text-xs text-gray-500 mt-1">{hint}</p>
     </div>
-  );
-}
+);
+
+// Button: スタイルと状態を持つボタン
+const Button: React.FC<{ type: 'submit' | 'button'; disabled: boolean; children: React.ReactNode }> = ({ type, disabled, children }) => (
+    <button 
+        type={type} 
+        disabled={disabled} 
+        className={`w-full py-3 px-4 rounded-xl text-white font-bold transition duration-150 shadow-md ${
+            disabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
+        }`}
+    >
+        {children}
+    </button>
+);
+
+// Layout: フォーム全体のコンテナ
+const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div className="container mx-auto p-4 max-w-xl mt-10">
+        <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+            {children}
+        </div>
+    </div>
+);
+
+// --- メインロジック ---
+
+// 【重要】: デプロイ前に、必ずこのプレースホルダーを実際の Lambda 関数 URL に置き換えてください。
+const LAMBDA_URL = "https://YOUR_ACTUAL_LAMBDA_FUNCTION_URL_HERE"; 
+const PLACEHOLDER_URL_CHECK = "https://YOUR_ACTUAL_LAMBDA_FUNCTION_URL_HERE";
+
+const ProvisionForm = () => {
+    // ユーザー入力の状態
+    const [instanceName, setInstanceName] = useState('');
+    const [email, setEmail] = useState('');
+    
+    // アプリケーションの状態
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    // Lambda側と一致するバリデーションルール
+    const NAME_REGEX = /^[A-Za-z0-9-]{3,32}$/;
+    const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+    // バリデーション結果の計算
+    const isValidName = useMemo(() => NAME_REGEX.test(instanceName), [instanceName]);
+    const isValidEmail = useMemo(() => EMAIL_REGEX.test(email), [email]);
+    const isFormValid = isValidName && isValidEmail;
+    
+    // フォーム送信ハンドラ
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!isFormValid || isSubmitting) return;
+
+        setIsSubmitting(true);
+        setMessage(null);
+
+        // URLがプレースホルダーのままか、空文字列でないかをチェック
+        if (!LAMBDA_URL || LAMBDA_URL === PLACEHOLDER_URL_CHECK) {
+             setMessage({ 
+                type: 'error', 
+                text: '❌ 設定エラー: Lambda 関数 URL がコードに設定されていません。ProvisionForm.tsxを確認してください。' 
+            });
+            setIsSubmitting(false);
+            return;
+        }
+
+        try {
+            const response = await fetch(LAMBDA_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    instanceName: instanceName.trim(), 
+                    requesterEmail: email.trim(), 
+                }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.ok) {
+                // 成功メッセージ (Lambdaからの実行IDを含む)
+                setMessage({ 
+                    type: 'success', 
+                    text: `✅ リクエストが正常に開始されました。承認ID: ${data.executionId}。` 
+                });
+                // フォームをクリア
+                setInstanceName('');
+                setEmail('');
+            } else {
+                // Lambdaからのエラー応答 (400 Bad Requestなど)
+                setMessage({ 
+                    type: 'error', 
+                    text: `❌ リクエスト失敗: ${data.error || '不明なサーバーエラー'}` 
+                });
+            }
+        } catch (error) {
+            console.error("API呼び出しエラー:", error);
+            setMessage({ 
+                type: 'error', 
+                text: 'ネットワークエラーが発生しました。コンソールを確認してください。' 
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <Layout>
+            <h1 className="text-2xl font-extrabold mb-8 text-gray-800 text-center">EC2 自動払い出しリクエスト</h1>
+            
+            <form onSubmit={handleSubmit}>
+                
+                {/* 1. インスタンス名入力欄 */}
+                <Field label="インスタンス名" hint="半角英数字とハイフン、3〜32文字">
+                    <input
+                        value={instanceName}
+                        onChange={(e) => setInstanceName(e.target.value)}
+                        className={`w-full rounded-xl border px-4 py-3 transition duration-150 focus:outline-none focus:ring-2 ${
+                            isValidName || instanceName === '' ? "border-slate-300 focus:ring-indigo-300" : "border-red-500 focus:ring-red-300"
+                        }`}
+                        placeholder="win-2025-dev-01"
+                        maxLength={32}
+                        required
+                    />
+                    {!isValidName && instanceName !== '' && (
+                        <p className="text-red-500 text-xs mt-1">半角英数字とハイフン、3〜32文字で入力してください。</p>
+                    )}
+                </Field>
+
+                {/* 2. 申請者メール入力欄 */}
+                <Field label="申請者メール" hint="払い出し結果とキーペアの通知に使用されます">
+                    <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className={`w-full rounded-xl border px-4 py-3 transition duration-150 focus:outline-none focus:ring-2 ${
+                            isValidEmail || email === '' ? "border-slate-300 focus:ring-indigo-300" : "border-red-500 focus:ring-red-300"
+                        }`}
+                        placeholder="you@example.com"
+                        required
+                    />
+                     {!isValidEmail && email !== '' && (
+                        <p className="text-red-500 text-xs mt-1">有効なメールアドレス形式で入力してください。</p>
+                    )}
+                </Field>
+
+                {/* 3. 送信ボタン */}
+                <div className="mt-8">
+                    <Button 
+                        type="submit" 
+                        disabled={!isFormValid || isSubmitting}
+                    >
+                        {isSubmitting ? "リクエストを送信中..." : "EC2払い出しをリクエスト"}
+                    </Button>
+                </div>
+
+                {/* 4. メッセージ表示エリア */}
+                {message && (
+                    <div className={`mt-6 p-4 rounded-xl shadow-inner ${
+                        message.type === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'
+                    }`}>
+                        <p className="font-medium">{message.text}</p>
+                    </div>
+                )}
+            </form>
+        </Layout>
+    );
+};
+
+export default ProvisionForm;
+```eof
+
+---
+
+## 🚀 次のステップ
+
+このコードを `src/components/ProvisionForm.tsx` に適用後、以下の手順を実行してください。
+
+1.  **Lambda URLの置き換え**: `LAMBDA_URL` の値を、あなたの実際の Lambda 関数 URL に置き換えます。
+2.  **`App.tsx` の修正**: `src/App.tsx` ファイルでこの `ProvisionForm` コンポーネントをインポートし、表示します。
+3.  **GitHubにプッシュ**: 修正をGitHubにコミット＆プッシュし、Amplify Hostingの自動デプロイをトリガーします。
