@@ -6,6 +6,7 @@ applications:
           commands:
             - echo "📦 amplify.yml FOUND (preBuild)"
             - echo "🔧 Using Node via runtime-versions (Node 20)"
+            - echo "VITE_LAMBDA_URL=${VITE_LAMBDA_URL:-(missing)}"
         build:
           commands:
             - echo "📦 amplify.yml FOUND (build)"
