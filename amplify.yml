@@ -4,14 +4,12 @@ applications:
       phases:
         preBuild:
           commands:
-            - echo "🔧 Use Node $(cat .nvmrc)"
-            - nvm install $(cat .nvmrc)
-            - nvm use $(cat .nvmrc)
-            - node -v
-            - corepack enable
-            - npm ci
+            - echo "📦 amplify.yml FOUND (preBuild)"
+            - echo "🔧 Using Node via runtime-versions (Node 20)"
         build:
           commands:
+            - echo "📦 amplify.yml FOUND (build)"
+            - npm ci
             - npm run build
       artifacts:
         baseDirectory: dist
@@ -20,4 +18,5 @@ applications:
       cache:
         paths:
           - node_modules/**/*
-    appRoot: /
+    runtime-versions:
+      nodejs: 20
