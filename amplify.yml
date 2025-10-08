@@ -1,20 +1,25 @@
 version: 1
-backend:
-  phases:
-    build:
-      commands:
-        - npm ci --cache .npm --prefer-offline
-        - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
-frontend:
-  phases:
-    build:
-      commands:
-        - npm run build
-  artifacts:
-    baseDirectory: dist
-    files:
-      - '**/*'
-  cache:
-    paths:
-      - .npm/**/*
-      - node_modules/**/*
+applications:
+  - appRoot: .
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - node -v
+            - nvm install 20
+            - nvm use 20
+            - npm ci
+        build:
+          commands:
+            # TypeScriptの型エラーを先に顕在化
+            - npx tsc --noEmit
+            # Viteの詳細ログ
+            - npm_config_loglevel=verbose vite build || (echo "Vite build failed" && exit 1)
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - .npm/**/*
+          - node_modules/**/*
