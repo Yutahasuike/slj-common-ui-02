@@ -4,11 +4,13 @@ applications:
       phases:
         preBuild:
           commands:
-            - echo "📦 amplify.yml FOUND (preBuild)"
-            - echo "🔧 Using Node via runtime-versions (Node 20)"
+            - echo "🔧 Using Node via nvm (20)"
+            - nvm install 20
+            - nvm use 20
+            - node -v
+            - npm ci
         build:
           commands:
-            - npm ci
             - npm run build
       artifacts:
         baseDirectory: dist
@@ -17,5 +19,3 @@ applications:
       cache:
         paths:
           - node_modules/**/*
-    runtime-versions:
-      nodejs: 20
