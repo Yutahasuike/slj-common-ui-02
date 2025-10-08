@@ -1,31 +1,23 @@
 version: 1
 applications:
-  - appRoot: .
-    frontend:
+  - frontend:
       phases:
         preBuild:
           commands:
-            - echo "🔧 Node version check"
+            - echo "🔧 Use Node $(cat .nvmrc)"
+            - nvm install $(cat .nvmrc)
+            - nvm use $(cat .nvmrc)
             - node -v
+            - corepack enable
             - npm ci
         build:
           commands:
-            # TypeScript の型チェック（エラーで止めたくない場合は || true）
-            - echo "🏗️ Starting TypeScript check"
-            - npx tsc --noEmit || true
-            # Vite ビルド開始
-            - echo "🚀 Starting Vite build"
             - npm run build
       artifacts:
-        # Vite の出力先ディレクトリ
         baseDirectory: dist
         files:
           - '**/*'
       cache:
         paths:
-          - .npm/**/*
           - node_modules/**/*
-    environment:
-      variables:
-        # Amplify コンソールで設定した環境変数をここで参照（任意）
-        VITE_LAMBDA_URL: ${VITE_LAMBDA_URL}
+    appRoot: /
