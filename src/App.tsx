@@ -1,20 +1,30 @@
 import React, { useMemo, useState } from "react";
 
-// Lambda Function URL（Amplify の Frontend 環境変数）
-const LAMBDA_URL = (import.meta as any)?.env?.VITE_LAMBDA_URL as
-  | string
-  | undefined;
+/** 🔗 Lambda Function URL（直書き） */
+const LAMBDA_URL =
+  "https://2wfkhg5j2uztf2xrkglfr6vyne0rukze.lambda-url.ap-northeast-1.on.aws/";
 
-// バリデーション（Lambda と同じルール）
+/** バリデーション（Lambda側と同じ） */
 const NAME_REGEX = /^[A-Za-z0-9-]{3,32}$/;
 const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+/** fetch の簡易タイムアウト */
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, ms = 30000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const App: React.FC = () => {
-  // 入力値
+  // 入力
   const [instanceName, setInstanceName] = useState("");
   const [email, setEmail] = useState("");
 
-  // UI 状態
+  // UI
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<
     { type: "success" | "error" | "info"; text: string } | null
@@ -32,8 +42,7 @@ const App: React.FC = () => {
     if (!LAMBDA_URL) {
       setNotice({
         type: "error",
-        text:
-          "システム設定が未完了のため申請を送信できません（VITE_LAMBDA_URL が未設定）。担当者へご連絡ください。",
+        text: "送信先が設定されていません。管理者に連絡してください。",
       });
       return;
     }
@@ -42,15 +51,20 @@ const App: React.FC = () => {
     setNotice({ type: "info", text: "申請を送信しています。しばらくお待ちください…" });
 
     try {
-      const resp = await fetch(LAMBDA_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          instanceName: instanceName.trim(),
-          requesterEmail: email.trim(),
-        }),
-      });
+      const resp = await fetchWithTimeout(
+        LAMBDA_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instanceName: instanceName.trim(),
+            requesterEmail: email.trim(),
+          }),
+        },
+        30000 // 30秒でタイムアウト
+      );
 
+      // CORS などで opaque になる場合をケア（基本は JSON が返る想定）
       const ct = resp.headers.get("content-type") || "";
       const isJson = ct.includes("application/json");
       const data: any = isJson ? await resp.json().catch(() => ({})) : { raw: await resp.text() };
@@ -64,18 +78,22 @@ const App: React.FC = () => {
         setEmail("");
       } else {
         const reason =
-          data?.error || (typeof data?.raw === "string" ? data.raw.slice(0, 300) : `HTTP ${resp.status}`);
+          data?.error ||
+          (typeof data?.raw === "string" ? data.raw.slice(0, 300) : `HTTP ${resp.status}`);
         setNotice({
           type: "error",
           text: `申請に失敗しました。お手数ですが時間をおいて再度お試しください（詳細：${reason}）`,
         });
       }
     } catch (err: any) {
+      const aborted = err?.name === "AbortError";
       setNotice({
         type: "error",
-        text: `通信エラーが発生しました。時間をおいて再度お試しください（${String(
-          err?.message || err
-        )}）`,
+        text: aborted
+          ? "通信がタイムアウトしました。ネットワーク状況を確認して再度お試しください。"
+          : `通信エラーが発生しました。時間をおいて再度お試しください（${String(
+              err?.message || err
+            )}）`,
       });
     } finally {
       setIsSubmitting(false);
@@ -144,7 +162,9 @@ const App: React.FC = () => {
               {notice && (
                 <div
                   role="status"
-                  className={`notice ${notice.type === "success" ? "success" : notice.type === "error" ? "error" : "info"}`}
+                  className={`notice ${
+                    notice.type === "success" ? "success" : notice.type === "error" ? "error" : "info"
+                  }`}
                 >
                   {notice.text}
                 </div>
